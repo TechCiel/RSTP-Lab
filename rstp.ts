@@ -28,29 +28,38 @@ class Frame {
     }
 }
 
+//class BPDU {
+//    const prefix: string = '42420300000202'
+//}
+
+
 interface Port {
     parent: Device
-    id: number
     peer: Port|null
     queue: Frame[]
+    id(): string
     recv(frame: Frame): void
     send(frame: Frame): boolean
 }
 interface Device {
     readonly mac: MAC
     readonly name: string
+    id(): string
     recv(frame: Frame, src: Port): void
 }
 
 class BasePort implements Port {
     parent: Device
-    id: number
+    _id: number
     peer: Port|null = null
     queue: Frame[] = []
     constructor(parent: Device, id: number) {
         this.parent = parent
-        this.id = id
+        this._id = id
         setInterval(this.check.bind(this), 100)
+    }
+    id(): string {
+        return this.parent.id()+' Port'+this._id
     }
     check(): void {
         let frame = this.queue.pop()
@@ -76,7 +85,7 @@ class BaseDevice implements Device {
         return this.constructor.name+' '+this.name+'('+this.mac.macH+')'
     }
     recv(frame: Frame, src: Port): void {
-        console.log(this.id()+' received a frame on port '+src.id+':')
+        console.log(this.id()+' received a frame on port '+src.id()+':')
         console.log(frame.print())
     }
 }
@@ -129,4 +138,23 @@ class Bridge extends BaseDevice implements Device {
             })
         }
     }
+}
+
+function connect(x: Port, y: Port): boolean {
+    if(x.peer || y.peer) {
+        console.error('Could not connect '+x.id()+' with '+y.id()+'!')
+        return false
+    }
+    x.peer = y
+    y.peer = x
+    return true
+}
+function disconnect(x: Port, y: Port): boolean {
+    if(x.peer!==y || y.peer!==x) {
+        console.error('Could not disconnect '+x.id()+' with '+y.id()+'!')
+        return false
+    }
+    x.peer = null
+    y.peer = null
+    return true
 }

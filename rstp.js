@@ -26,8 +26,11 @@ class BasePort {
         this.peer = null;
         this.queue = [];
         this.parent = parent;
-        this.id = id;
+        this._id = id;
         setInterval(this.check.bind(this), 100);
+    }
+    id() {
+        return this.parent.id() + ' Port' + this._id;
     }
     check() {
         let frame = this.queue.pop();
@@ -53,7 +56,7 @@ class BaseDevice {
         return this.constructor.name + ' ' + this.name + '(' + this.mac.macH + ')';
     }
     recv(frame, src) {
-        console.log(this.id() + ' received a frame on port ' + src.id + ':');
+        console.log(this.id() + ' received a frame on port ' + src.id() + ':');
         console.log(frame.print());
     }
 }
@@ -108,4 +111,22 @@ class Bridge extends BaseDevice {
             });
         }
     }
+}
+function connect(x, y) {
+    if (x.peer || y.peer) {
+        console.error('Could not connect ' + x.id() + ' with ' + y.id() + '!');
+        return false;
+    }
+    x.peer = y;
+    y.peer = x;
+    return true;
+}
+function disconnect(x, y) {
+    if (x.peer !== y || y.peer !== x) {
+        console.error('Could not disconnect ' + x.id() + ' with ' + y.id() + '!');
+        return false;
+    }
+    x.peer = null;
+    y.peer = null;
+    return true;
 }
