@@ -1,3 +1,6 @@
+var nodes = new Map<string, Device|Port>();
+var edges = new Set<string>();
+
 function toHex(x: number, digits: number): string {
     return ('0'.repeat(digits)+Number(x).toString(16)).slice(-digits).toUpperCase()
 }
@@ -10,6 +13,7 @@ class MAC {
         this.macH = toHex(mac, 12)
     }
 }
+
 class Frame {
     readonly dest: MAC
     readonly src: MAC
@@ -28,23 +32,30 @@ class Frame {
     }
 }
 
+const RSTP_HELLO_TIME = 2;
+const RSTP_FWD_DELAY = 15;
+const RSTP_MAX_AGE = 20;
+
 //class BPDU {
 //    const prefix: string = '42420300000202'
 //}
 
-
 interface Port {
-    parent: Device
+    readonly parent: Device
     peer: Port|null
     queue: Frame[]
+    destructor(): void
     id(): string
+    name(): string
     recv(frame: Frame): void
     send(frame: Frame): boolean
 }
+
 interface Device {
     readonly mac: MAC
-    readonly name: string
+    destructor(): void
     id(): string
+    name(): string
     recv(frame: Frame, src: Port): void
 }
 
@@ -56,9 +67,16 @@ class BasePort implements Port {
     constructor(parent: Device, id: number) {
         this.parent = parent
         this._id = id
+        nodes.set(this.id(), this)
         setInterval(this.check.bind(this), 100)
     }
+    destructor(): void {
+        nodes.delete(this.id())
+    }
     id(): string {
+        return this.parent.id()+'-'+this._id
+    }
+    name(): string {
         return this.parent.id()+' Port'+this._id
     }
     check(): void {
@@ -74,18 +92,26 @@ class BasePort implements Port {
         return true
     }
 }
+
 class BaseDevice implements Device {
     readonly mac: MAC
-    readonly name: string
-    constructor(name: string=randomName(), mac: MAC=new MAC()) {
-        this.name = name
+    readonly _id: string
+    constructor(id: string=randomId(), mac: MAC=new MAC()) {
+        this._id = id
         this.mac = mac
+        nodes.set(this.id(), this)
+    }
+    destructor(): void {
+        nodes.delete(this.id())
     }
     id(): string {
-        return this.constructor.name+' '+this.name+'('+this.mac.macH+')'
+        return this._id
+    }
+    name(): string {
+        return this.constructor.name+' '+this._id+'('+this.mac.macH+')'
     }
     recv(frame: Frame, src: Port): void {
-        console.log(this.id()+' received a frame on port '+src.id()+':')
+        console.log(this.name()+' received a frame on port '+src.id()+':')
         console.log(frame.print())
     }
 }
@@ -93,17 +119,17 @@ class BaseDevice implements Device {
 class Edge extends BaseDevice implements Device {
     port: Port = new BasePort(this, 0)
     send(to: MAC, payload: Uint8Array=randomPayload(16)): void {
-        console.log(this.id()+' sent a frame to '+to.macH)
+        console.log(this.name()+' sent a frame to '+to.macH)
         if(!this.port.send(new Frame(to, this.mac, 0x0800, payload))) {
-            console.warn(this.id()+' failed to send()')
+            console.warn(this.name()+' failed to send()')
         }
     }
 }
 
 class Hub extends BaseDevice implements Device {
     ports: Port[] = []
-    constructor(nPorts: number, name: string=randomName(), mac: MAC=new MAC()) {
-        super(name, mac)
+    constructor(nPorts: number, id: string=randomId(), mac: MAC=new MAC()) {
+        super(id, mac)
         for(let i=0; i<nPorts; i++) {
             this.ports[i] = new BasePort(this, i)
         }
@@ -118,8 +144,8 @@ class Hub extends BaseDevice implements Device {
 class Bridge extends BaseDevice implements Device {
     ports: Port[] = []
     table: Map<number, Port>
-    constructor(nPorts: number, name: string=randomName(), mac: MAC=new MAC()) {
-        super(name, mac)
+    constructor(nPorts: number, id: string=randomId(), mac: MAC=new MAC()) {
+        super(id, mac)
         for(let i=0; i<nPorts; i++) {
             this.ports[i] = new BasePort(this, i)
         }
@@ -147,6 +173,9 @@ function connect(x: Port, y: Port): boolean {
     }
     x.peer = y
     y.peer = x
+    let xid = (x.parent instanceof Bridge) ? x.id() : x.parent.id()
+    let yid = (y.parent instanceof Bridge) ? y.id() : y.parent.id()
+    edges.add(xid+','+yid)
     return true
 }
 function disconnect(x: Port, y: Port): boolean {
@@ -156,5 +185,9 @@ function disconnect(x: Port, y: Port): boolean {
     }
     x.peer = null
     y.peer = null
+    let xid = (x.parent instanceof Bridge) ? x.id() : x.parent.id()
+    let yid = (y.parent instanceof Bridge) ? y.id() : y.parent.id()
+    edges.delete(xid+','+yid)
+    edges.delete(yid+','+xid)
     return true
 }
