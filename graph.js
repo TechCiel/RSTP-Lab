@@ -15,17 +15,24 @@ const graph = new G6.Graph({
     fitView: true,
     animate: true,
     layout: {
-        type: 'comboForce',
+        type: 'force',
+        linkDistance: 15,
+        nodeStrength: 5, 
+        edgeStrength: -0.1,
         preventOverlap: true,
+        collideStrength: 1,
         nodeSize: 30,
         nodeSpacing: 5,
-        comboSpacing: 5,
-        comboGravity: 50
+        clustering: true,
+        clusterNodeStrength: -5,
+        clusterEdgeDistance: 200,
+        clusterFociStrength: 2,
+        clusterNodeSize: 50
     },
     workerEnabled: true,
     gpuEnabled: true,
     modes: {
-        default: ['zoom-canvas', 'drag-canvas', 'drag-node', 'drag-combo', 'collapse-expand-combo'],
+        default: ['zoom-canvas', 'drag-canvas', 'drag-combo', 'collapse-expand-combo'],
     },
     defaultNode: {
         size: 30,
@@ -48,6 +55,18 @@ const graph = new G6.Graph({
         }
     }
 });
-
+graph.on('node:dragstart', function (e) {
+    graph.layout();
+    refreshDragedNodePosition(e);
+});
+graph.on('node:drag', function (e) {
+    const forceLayout = graph.get('layoutController').layoutMethods[0];
+    forceLayout.execute();
+    refreshDragedNodePosition(e);
+});
+graph.on('node:dragend', function (e) {
+    e.item.get('model').fx = null;
+    e.item.get('model').fy = null;
+});
 graph.data(data);
 graph.render();
