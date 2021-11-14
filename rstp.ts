@@ -12,6 +12,9 @@ class MAC {
         this.mac = mac
         this.macH = toHex(mac, 12)
     }
+    equals(that: MAC): boolean {
+        return this.mac == that.mac
+    }
 }
 
 class Frame {
@@ -33,16 +36,19 @@ payload: ${Array.from(this.payload).map((x) => {return toHex(x, 2)}).join(' ')}`
     }
 }
 
-const RSTP_HELLO_TIME = 2
-const RSTP_FWD_DELAY = 15
+const MS_PER_SECOND = 1000
+const RSTP_HELLO_TIME = 2*MS_PER_SECOND
+const RSTP_FWD_DELAY = 15*MS_PER_SECOND
 const RSTP_MAX_AGE = 20
-const MS_PER_SECOND = 100
 class bpduBridgeID {
     readonly priority: number
     readonly mac: MAC
     constructor(mac: MAC, priority: number=0x7fff) {
         this.mac = mac
         this.priority = priority&0xffff
+    }
+    equals(that: bpduBridgeID): boolean {
+        return this.mac.equals(that.mac) && this.priority === that.priority
     }
     superior(that: bpduBridgeID): boolean {
         if(this.priority < that.priority) return true
@@ -58,6 +64,9 @@ class bpduPortID {
     constructor(id: number, priority: number=0x8) {
         this.id = id
         this.priority = priority&0xf
+    }
+    equals(that: bpduPortID): boolean {
+        return this.id === that.id && this.priority === that.priority
     }
     superior(that: bpduPortID): boolean {
         if(this.priority < that.priority) return true
@@ -133,7 +142,7 @@ ${[, 'alternate', 'root', 'designated'][this.role]} port ${this.portID.priority}
 age: ${this.msgAge} flag:${this.topoChange?' TC':''}${this.proposal?' proposal':''}${this.agreement?' agreement':''}`
         )
     }
-    toFrame(src: MAC): Frame {
+    toFrame(src: MAC, agreement: boolean=false): Frame {
         let payload = new Uint8Array(39)
         payload[0] = payload[1] = 0x42
         payload[2] = 0x03
@@ -150,6 +159,9 @@ age: ${this.msgAge} flag:${this.topoChange?' TC':''}${this.proposal?' proposal':
         payload[32] = this.maxAge&0xff
         payload[34] = this.helloTime&0xff
         payload[36] = this.fwdDelay&0xff
+        if(agreement) {
+            payload[7] ^= 66
+        }
         return new Frame(new MAC(0x0180C2000000), src, 0x27, payload)
     }
     static fromFrame(frame: Frame): BPDU {
@@ -316,7 +328,7 @@ class RSTPPort extends BasePort implements Port {
         this.parent = parent
         this.cost = cost
         this.myID = new bpduPortID(id)
-        setInterval(this.hello.bind(this), RSTP_HELLO_TIME*MS_PER_SECOND)
+        setInterval(this.hello.bind(this), RSTP_HELLO_TIME)
     }
     myBPDU(): BPDU {
         return new BPDU(
@@ -327,7 +339,11 @@ class RSTPPort extends BasePort implements Port {
             this.state,
             this.role,
             (this.parent.rootPort?this.parent.rootAge:-1)+1,
-            (this.role === PortRole.Designated && this.state < PortState.Forward),
+            (
+                this.ptp === true &&
+                this.role === PortRole.Designated &&
+                this.state < PortState.Forward
+            ),
             false,
             this.topoChange
         )
@@ -335,33 +351,29 @@ class RSTPPort extends BasePort implements Port {
     override connect(that: Port): void {
         super.connect(that)
         console.log(`${this.id()} connected`)
+        this.role = PortRole.Designated
         console.log(`${this.id()} is made DESIGNATED by up`)
         if(this.edge) {
             console.log(`${this.id()} entering FORWARDING by edge`)
             this.state = PortState.Forward
         }
         else {
+            console.log(`${this.id()} converging by connect`)
             this.converge(PortRole.Designated)
         }
     }
     override disconnect(): void {
-        super.disconnect()
-        console.log(`${this.id()} disconnected`)
+        this.parent.fail(this)
         this.state = PortState.Discard
         console.log(`${this.id()} entering DISCARDING by down`)
-        // TODO: Alternate/Backup election
-        //////////////// TODO: Physical Failure handle
+        this.clearTable()
         this.bestBPDU = null
-        if(this.timerState) {
-            clearTimeout(this.timerState)
-            this.timerState = null
-        }
-        if(this.timerBPDU) {
-            clearTimeout(this.timerBPDU)
-            this.timerBPDU = null
-        }
+        if(this.timerState) clearTimeout(this.timerState)
+        if(this.timerBPDU) clearTimeout(this.timerBPDU)
+        super.disconnect()
+        console.log(`${this.id()} disconnected`)
     }
-    hello() {
+    hello(): void {
         if(
             this.peer &&
             (
@@ -379,13 +391,15 @@ class RSTPPort extends BasePort implements Port {
     }
     block(bpdu: BPDU): void {
         if(!this.bestBPDU||bpdu.superior(this.bestBPDU)) this.bestBPDU = bpdu
-        if(this.role !== PortRole.Root) {
+        if(this.role === PortRole.Alternate) {
             if(this.timerState) clearTimeout(this.timerState)
         }
         if(this.timerBPDU) clearTimeout(this.timerBPDU)
         this.timerBPDU = setTimeout(() => {
+            this.parent.fail(this)////
+            console.log(`${this.id()} converging by timeout`)
             this.converge(PortRole.Designated)
-        }, 3*RSTP_HELLO_TIME*MS_PER_SECOND)
+        }, 3*RSTP_HELLO_TIME)
     }
     converge(role: PortRole): void {
         this.bestBPDU = null
@@ -394,6 +408,7 @@ class RSTPPort extends BasePort implements Port {
         this.state = PortState.Discard
         console.log(`${this.id()} is made ${[, 'ALTERNATE', 'ROOT', 'DESIGNATED'][this.role]} by converging...`)
         console.log(`${this.id()} entering DISCARDING by converging...`)
+        this.clearTable()
         if(this.timerState) clearTimeout(this.timerState)
         this.timerState = setTimeout(() => {
             this.state = PortState.Learn
@@ -402,13 +417,13 @@ class RSTPPort extends BasePort implements Port {
                 this.state = PortState.Forward
                 console.log(`${this.id()} entering FORWARDING by timer`)
                 this.parent.topoChange(this, true)
-            }, RSTP_FWD_DELAY*MS_PER_SECOND)
-        }, RSTP_FWD_DELAY*MS_PER_SECOND)
+            }, RSTP_FWD_DELAY)
+        }, RSTP_FWD_DELAY)
         this.hello()
     }
-    flushMAC(): void {
+    clearTable(): void {
         this.parent.table.forEach((port, mac) => {
-            if(this === port) this.parent.table.delete(mac)
+            if(port === this) this.parent.table.delete(mac)
         })
     }
 }
@@ -466,52 +481,82 @@ class Bridge extends BaseDevice implements Device {
         //bpdu.print()
         if(src.edge) {
             src.edge = false
-            console.log(`${src.id()} is not edge!`)
+            console.log(`${src.id()} is converging by non-edge`)
             src.converge(PortRole.Designated)
         }
-        if(bpdu.topoChange) this.topoChange(src)
+        if(bpdu.msgAge > bpdu.maxAge) return
+        if(
+            bpdu.agreement &&
+            src.role === PortRole.Designated &&
+            src.ptp === true
+        ) {
+            src.state = PortState.Forward
+            console.log(`${src.id()} entering FORWARDING by agreemnet`)
+            this.topoChange(src, true) 
+            if(src.timerState) clearTimeout(src.timerState)
+            return
+        }
+        if(
+            bpdu.topoChange &&
+            src.state === PortState.Forward
+        ) this.topoChange(src)
         if(
             bpdu.rootID.superior(this.root) ||
             (
                 this.rootPort &&
-                this.rootPort.bestBPDU && // makes tsc happy
+                this.rootPort.bestBPDU &&
                 bpdu.superior(this.rootPort.bestBPDU)
             )
         ) {
-
             this.root = bpdu.rootID
             this.rootCost = bpdu.cost
             this.rootAge = bpdu.msgAge
             this.rootPort = src
-            bpdu.print()
+            console.log(`${src.id()} converging by root`)
             src.converge(PortRole.Root)
-            src.block(bpdu)
             this.ports.forEach((x) => {
-                if(!x.edge && x!==src) x.converge(PortRole.Designated)
+                if(
+                    !x.edge &&
+                    x !== src &&
+                    x.role !== PortRole.Alternate
+                ) {
+                    console.log(`${x.id()} converging by root update`)
+                    x.converge(PortRole.Designated)
+                }
             })
+            if(
+                bpdu.proposal &&
+                src.ptp === true
+            ) {
+                src.send(bpdu.toFrame(this.mac, true))
+                src.state = PortState.Forward
+                console.log(`${src.id()} entering FORWARDING by send agreemnet`)
+                this.topoChange(src, true) 
+                if(src.timerState) clearTimeout(src.timerState)
+            }
         }
         if(bpdu.superior(src.myBPDU())) { // bpdu > myBPDU
-            if(src.role !== PortRole.Root) {
-                if(
-                    src.role !== PortRole.Alternate ||
-                    src.state !== PortState.Discard) {
-                    console.log(`${src.id()} is made ALTERNATE by BPDU`)
-                    console.log(`${src.id()} entering DISCARDING by BPDU`)
-                    bpdu.print()
-                }
+            if(src.role === PortRole.Designated) {
                 src.role = PortRole.Alternate
+                console.log(`${src.id()} is made ALTERNATE by BPDU`)
                 src.state = PortState.Discard
+                console.log(`${src.id()} entering DISCARDING by BPDU`)
             }
             src.block(bpdu)
         }
         else if(
             src.myBPDU().superior(bpdu) && // myBPDU > bpdu
-            src.role !== PortRole.Designated
+            src.role === PortRole.Alternate &&
+            src.bestBPDU &&
+            src.bestBPDU.senderID.equals(bpdu.senderID)
         ){
+            console.log(`${src.id()} converging by inferior bpdu`)
+            //bpdu.print()
             src.converge(PortRole.Designated)
         }
     }
     topoChange(src: RSTPPort, detected: boolean=false): void {
+        console.log(`Topology change ${detected?'detected':'received'} on ${src.id()}`)
         this.ports.forEach((x) => {
             if(detected || x !== src) {
                 x.topoChange = true
@@ -519,8 +564,67 @@ class Bridge extends BaseDevice implements Device {
                     x.topoChange = false
                 }, 2*RSTP_HELLO_TIME)
             }
-            if(x !== src) src.flushMAC()
+            if(x !== src) {
+                x.clearTable()
+            }
         })
+    }
+    fail(port: RSTPPort): void {
+        if(port.role === PortRole.Root) {
+            let newRoot: RSTPPort|null = null
+            for(let x of this.ports) {
+                if(
+                    x.role === PortRole.Alternate &&
+                    x.bestBPDU && x.bestBPDU.rootID.equals(this.root) &&
+                    (
+                        !newRoot || 
+                        (newRoot.bestBPDU && x.bestBPDU.superior(newRoot.bestBPDU)                            )
+                    )
+                ) newRoot = x
+            }
+            if(newRoot && newRoot.bestBPDU) {
+                this.rootCost = newRoot.bestBPDU.cost
+                this.rootAge = newRoot.bestBPDU.msgAge
+                this.rootPort = newRoot
+                newRoot.role = PortRole.Root
+                console.log(`${newRoot.id()} is made ROOT by root fail`)
+                newRoot.state = PortState.Forward
+                console.log(`${newRoot.id()} entering FORWARDING by root fail`)
+                this.topoChange(newRoot, true)    
+            }
+            else {
+                console.log(`${this.id()} lost connection to root!`)
+                this.root = this.myID
+                this.rootAge = 0
+                this.rootCost = 0
+                this.rootPort = null
+                this.ports.forEach((x) => {
+                    if(!x.edge) {
+                        console.log(`${x.id()} converging by root fail`)
+                        x.converge(PortRole.Designated)
+                    }
+                })
+            }
+        }
+        if(port.role === PortRole.Designated) {
+            for(let x of this.ports) {
+                if(
+                    x.role === PortRole.Alternate &&
+                    x.bestBPDU &&
+                    x.bestBPDU.senderID.equals(this.myID) &&
+                    x.bestBPDU.portID.equals(port.myID)
+                ) {
+                    x.bestBPDU = null
+                    if(x.timerBPDU) clearTimeout(x.timerBPDU)
+                    x.role = PortRole.Designated
+                    console.log(`${x.id()} is made DESIGNATED by designated fail`)
+                    x.state = PortState.Forward
+                    console.log(`${x.id()} entering FORWARDING by designated fail`)
+                    this.topoChange(x, true)
+                    break
+                }
+            }
+        }
     }
 }
 
@@ -547,5 +651,17 @@ function disconnect(x: Port, y: Port): boolean {
     let yid = (y.parent instanceof Bridge) ? y.id() : y.parent.id()
     edges.delete(xid+','+yid)
     edges.delete(yid+','+xid)
+    return true
+}
+function failure(x: Port): boolean {
+    if(!x.peer) {
+        console.error(`${x.id()} not connected!`)
+        return false
+    }
+    //let xid = (x.parent instanceof Bridge) ? x.id() : x.parent.id()
+    let y = x.peer
+    //let yid = (y.parent instanceof Bridge) ? y.id() : y.parent.id()
+    x.peer = null
+    y.peer = null
     return true
 }

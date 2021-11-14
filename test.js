@@ -1,4 +1,5 @@
 "use strict"
+/*
 let b1 = new Bridge(8, 'b1', new MAC(1))
 let b2 = new Bridge(8, 'b2', new MAC(2))
 let b3 = new Bridge(8, 'b3', new MAC(3))
@@ -15,7 +16,6 @@ let e5 = new Edge('e5')
 let e6 = new Edge('e6')
 let e7 = new Edge('e7')
 let e8 = new Edge('e8')
-
 connect(b1.ports[1], e1.port)
 connect(b2.ports[2], e2.port)
 connect(b3.ports[3], e3.port)
@@ -24,7 +24,6 @@ connect(h5.ports[5], e5.port)
 connect(h6.ports[6], e6.port)
 connect(h7.ports[7], e7.port)
 connect(b8.ports[0], e8.port)
-
 connect(b1.ports[4], h4.ports[1])
 connect(b1.ports[5], h5.ports[1])
 connect(b1.ports[6], h6.ports[1])
@@ -35,6 +34,29 @@ connect(b3.ports[5], h5.ports[3])
 connect(b3.ports[6], h6.ports[3])
 connect(b3.ports[7], h7.ports[3])
 connect(b8.ports[4], h4.ports[0])
+*/
+/*
+let b1 = new Bridge(8, 'b1', new MAC(1))
+let b2 = new Bridge(8, 'b2', new MAC(2))
+let b3 = new Bridge(8, 'b3', new MAC(3))
+let b4 = new Bridge(8, 'b4', new MAC(4))
+let e1 = new Edge('e1')
+let e2 = new Edge('e2')
+let e3 = new Edge('e3')
+let e4 = new Edge('e4')
+connect(b1.ports[0], e1.port)
+connect(b2.ports[0], e2.port)
+connect(b3.ports[0], e3.port)
+connect(b4.ports[0], e4.port)
+connect(b1.ports[1], b2.ports[1])
+connect(b1.ports[2], b2.ports[2])
+connect(b1.ports[3], b3.ports[1])
+connect(b1.ports[4], b3.ports[2])
+connect(b1.ports[5], b4.ports[1])
+connect(b2.ports[3], b3.ports[3])
+connect(b2.ports[4], b3.ports[4])
+connect(b2.ports[5], b4.ports[2])
+*/
 
 
 var gNodes = []
