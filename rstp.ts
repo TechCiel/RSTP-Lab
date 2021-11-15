@@ -1,5 +1,4 @@
-var nodes = new Map<string, Device|Port>()
-var edges = new Set<string>()
+declare var graph: any;
 
 function toHex(x: number, digits: number): string {
     return ('0'.repeat(digits)+Number(x).toString(16)).slice(-digits).toUpperCase()
@@ -202,12 +201,13 @@ interface Port {
     peer: Port|null
     ptp: boolean|null
     queue: Frame[]
+    g: Object|null
     destructor(): void
     id(): string
     name(): string
     recv(frame: Frame): void
     send(frame: Frame): boolean
-    connect(that: Port): void
+    connect(that: Port, g: Object): void
     disconnect(): void
 }
 
@@ -225,17 +225,16 @@ class BasePort implements Port {
     peer: Port|null = null
     ptp: boolean|null = null
     queue: Frame[] = []
+    g: Object|null = null
     constructor(parent: Device, id: number) {
         this.parent = parent
         this._id = id
-        nodes.set(this.id(), this)
         setInterval(() => {
             let frame = this.queue.pop()
             if(frame) this.recv(frame)
         }, 100)
     }
     destructor(): void {
-        nodes.delete(this.id())
     }
     id(): string {
         return `${this.parent.id()}-${this._id}`
@@ -251,13 +250,16 @@ class BasePort implements Port {
         this.peer.queue.push(frame)
         return true
     }
-    connect(that: Port): void {
+    connect(that: Port, g: Object): void {
         this.ptp = !(this.parent instanceof Hub || that.parent instanceof Hub)
         this.peer = that
+        this.g = g
     }
     disconnect(): void {
         this.ptp = null
         this.peer = null
+        this.g = null
+        this.queue = []
     }
 }
 
@@ -267,10 +269,8 @@ class BaseDevice implements Device {
     constructor(id: string=randomId(), mac: MAC=new MAC()) {
         this._id = id
         this.mac = mac
-        nodes.set(this.id(), this)
     }
     destructor(): void {
-        nodes.delete(this.id())
     }
     id(): string {
         return this._id
@@ -288,6 +288,17 @@ class BaseDevice implements Device {
 
 class Edge extends BaseDevice implements Device {
     port: Port = new BasePort(this, 0)
+    g: Object
+    constructor(id: string=randomId(), mac: MAC=new MAC()) {
+        super(id, mac)
+        this.g = {
+            type: 'rect',
+            id: this.id(),
+            label: this.id(),
+            cluster: this.id()
+        }
+        graph.addItem('node', this.g)
+    }
     send(to: MAC, payload: Uint8Array=randomPayload(16)): void {
         console.log(`${this.name()} sent a frame to ${to.macH}`)
         if(!this.port.send(new Frame(to, this.mac, 0x0800, payload))) {
@@ -298,11 +309,19 @@ class Edge extends BaseDevice implements Device {
 
 class Hub extends BaseDevice implements Device {
     ports: Port[] = []
+    g: Object
     constructor(nPorts: number, id: string=randomId(), mac: MAC=new MAC()) {
         super(id, mac)
         for(let i=0; i<nPorts; i++) {
             this.ports[i] = new BasePort(this, i)
         }
+        this.g = {
+            type: 'diamond',
+            id: this.id(),
+            label: this.id(),
+            cluster: this.id()
+        }
+        graph.addItem('node', this.g)
     }
     override recv(frame: Frame, src: Port): void {
         this.ports.forEach((x) => {
@@ -314,14 +333,15 @@ class Hub extends BaseDevice implements Device {
 class RSTPPort extends BasePort implements Port {
     override readonly parent: Bridge
     edge: boolean = true
-    role: PortRole = PortRole.Designated
-    state: PortState = PortState.Discard
+    _role: PortRole = PortRole.Designated
+    _state: PortState = PortState.Discard
     topoChange: boolean = false
     readonly myID: bpduPortID
     readonly cost: number
     bestBPDU: BPDU|null = null
     timerState: number|null = null
     timerBPDU: number|null = null
+    gRSTP: Object
 
     constructor(parent: Bridge, id: number, cost: number=20000) {
         super(parent, id)
@@ -329,7 +349,30 @@ class RSTPPort extends BasePort implements Port {
         this.cost = cost
         this.myID = new bpduPortID(id)
         setInterval(this.hello.bind(this), RSTP_HELLO_TIME)
+        this.gRSTP = {
+            comboId: this.parent.id(),
+            id: this.id(),
+            label: this.id(),
+            cluster: this.parent.id(),
+            style: {
+                lineWidth: 20
+            }
+        }
+        graph.addItem('node', this.gRSTP)
+        graph.setItemState(this.id(), 'defunct', true)
+        graph.updateCombo(this.parent.id())
     }
+    get state() { return this._state }
+    set state(state: PortState) {
+        this._state = state
+        graph.setItemState(this.id(), 'state', ['discard', 'learn', 'forward'][state]);
+    }
+    get role() { return this._role }
+    set role(role: PortRole) {
+        this._role = role
+        graph.setItemState(this.id(), 'role', [, 'alternate', 'root', 'designated'][role]);
+    }
+    
     myBPDU(): BPDU {
         return new BPDU(
             this.parent.root,
@@ -348,8 +391,8 @@ class RSTPPort extends BasePort implements Port {
             this.topoChange
         )
     }
-    override connect(that: Port): void {
-        super.connect(that)
+    override connect(that: Port, g: Object): void {
+        super.connect(that, g)
         console.log(`${this.id()} connected`)
         this.role = PortRole.Designated
         console.log(`${this.id()} is made DESIGNATED by up`)
@@ -372,6 +415,7 @@ class RSTPPort extends BasePort implements Port {
         if(this.timerBPDU) clearTimeout(this.timerBPDU)
         super.disconnect()
         console.log(`${this.id()} disconnected`)
+        graph.setItemState(this.id(), 'defunct', true)
     }
     hello(): void {
         if(
@@ -411,13 +455,13 @@ class RSTPPort extends BasePort implements Port {
         this.clearTable()
         if(this.timerState) clearTimeout(this.timerState)
         this.timerState = setTimeout(() => {
-            this.state = PortState.Learn
-            console.log(`${this.id()} entering LEARNING by timer...`)
-            this.timerState = setTimeout(() => {
+        //    this.state = PortState.Learn
+        //    console.log(`${this.id()} entering LEARNING by timer...`)
+        //    this.timerState = setTimeout(() => {
                 this.state = PortState.Forward
                 console.log(`${this.id()} entering FORWARDING by timer`)
                 this.parent.topoChange(this, true)
-            }, RSTP_FWD_DELAY)
+        //    }, RSTP_FWD_DELAY)
         }, RSTP_FWD_DELAY)
         this.hello()
     }
@@ -436,10 +480,17 @@ class Bridge extends BaseDevice implements Device {
     rootAge: number = 0
     rootPort: RSTPPort|null = null
     myID: bpduBridgeID
+    g: Object
+
     constructor(nPorts: number, id: string=randomId(), mac: MAC=new MAC()) {
         super(id, mac)
         this.table = new Map<number, RSTPPort>()
         this.root = this.myID = new bpduBridgeID(mac)
+        this.g = {
+            id: this.id(),
+            label: this.id()
+        }
+        graph.createCombo(this.g, [])
         for(let i=0; i<nPorts; i++) {
             this.ports[i] = new RSTPPort(this, i)
         }
@@ -633,11 +684,16 @@ function connect(x: Port, y: Port): boolean {
         console.error(`Could not connect ${x.id()} with ${y.id()}!`)
         return false
     }
-    x.connect(y)
-    y.connect(x)
     let xid = (x.parent instanceof Bridge) ? x.id() : x.parent.id()
     let yid = (y.parent instanceof Bridge) ? y.id() : y.parent.id()
-    edges.add(xid+','+yid)
+    let g: Object = {
+        id: xid+','+yid,
+        source: xid,
+        target: yid,
+    }
+    graph.addItem('edge', g)
+    x.connect(y, g)
+    y.connect(x, g)
     return true
 }
 function disconnect(x: Port, y: Port): boolean {
@@ -649,8 +705,8 @@ function disconnect(x: Port, y: Port): boolean {
     y.disconnect()
     let xid = (x.parent instanceof Bridge) ? x.id() : x.parent.id()
     let yid = (y.parent instanceof Bridge) ? y.id() : y.parent.id()
-    edges.delete(xid+','+yid)
-    edges.delete(yid+','+xid)
+    let edge = graph.findById(xid+','+yid) || graph.findById(yid+','+xid)
+    graph.removeItem(edge)
     return true
 }
 function failure(x: Port): boolean {
@@ -658,10 +714,12 @@ function failure(x: Port): boolean {
         console.error(`${x.id()} not connected!`)
         return false
     }
-    //let xid = (x.parent instanceof Bridge) ? x.id() : x.parent.id()
+    let xid = (x.parent instanceof Bridge) ? x.id() : x.parent.id()
     let y = x.peer
-    //let yid = (y.parent instanceof Bridge) ? y.id() : y.parent.id()
+    let yid = (y.parent instanceof Bridge) ? y.id() : y.parent.id()
     x.peer = null
     y.peer = null
+    let edge = graph.findById(xid+','+yid) || graph.findById(yid+','+xid)
+    graph.setItemState(edge, 'fail', true)
     return true
 }

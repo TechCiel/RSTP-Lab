@@ -1,14 +1,14 @@
 "use strict";
 
 const data = {
-    nodes: gNodes,
-    combos: gCombos,
-    edges: gEdges,
-};
+    nodes: [],
+    combos: [],
+    edges: [],
+}
 
-const width = document.getElementById('mountNode').scrollWidth;
-const height = document.getElementById('mountNode').scrollHeight || 500;
-const graph = new G6.Graph({
+const width = document.getElementById('mountNode').scrollWidth
+const height = document.getElementById('mountNode').scrollHeight || 500
+var graph = new G6.Graph({
     container: 'mountNode',
     width,
     height,
@@ -21,13 +21,13 @@ const graph = new G6.Graph({
         edgeStrength: -0.1,
         preventOverlap: true,
         collideStrength: 1,
-        nodeSize: 30,
+        nodeSize: 50,
         nodeSpacing: 5,
         clustering: true,
         clusterNodeStrength: -5,
         clusterEdgeDistance: 200,
         clusterFociStrength: 2,
-        clusterNodeSize: 50
+        clusterNodeSize: 60
     },
     workerEnabled: true,
     gpuEnabled: true,
@@ -35,7 +35,7 @@ const graph = new G6.Graph({
         default: ['zoom-canvas', 'drag-canvas', 'drag-combo', 'collapse-expand-combo'],
     },
     defaultNode: {
-        size: 30,
+        size: 50,
         //anchorPoints: [15, 15],
         style: {
             lineWidth: 2
@@ -49,24 +49,39 @@ const graph = new G6.Graph({
         }
     },
     defaultEdge: {
+        //type: 'cubic',
         style: {
             stroke: '#0d47a1',
             lineWidth: 5
         }
+    },
+    nodeStateStyles: {
+        'state:discard': {stroke: '#e53935'},
+        'state:learn': {stroke: '#fb8c00'},
+        'state:forward': {stroke: '#43a047'},
+        'role:designated': {fill: '#fdd835'},
+        'role:alternate': {fill: '#9c27b0'},
+        'role:root': {fill: '#03a9f4'},
+        defunct: {stroke: '#757575'}
+    },
+    edgeStateStyles: {
+        fail: {
+            stroke: '#ff1744'
+        }
     }
 });
 graph.on('node:dragstart', function (e) {
-    graph.layout();
-    refreshDragedNodePosition(e);
-});
+    graph.layout()
+    refreshDragedNodePosition(e)
+})
 graph.on('node:drag', function (e) {
     const forceLayout = graph.get('layoutController').layoutMethods[0];
-    forceLayout.execute();
-    refreshDragedNodePosition(e);
-});
+    forceLayout.execute()
+    refreshDragedNodePosition(e)
+})
 graph.on('node:dragend', function (e) {
-    e.item.get('model').fx = null;
-    e.item.get('model').fy = null;
-});
-graph.data(data);
-graph.render();
+    e.item.get('model').fx = null
+    e.item.get('model').fy = null
+})
+graph.data(data)
+graph.render()

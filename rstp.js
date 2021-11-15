@@ -1,6 +1,4 @@
 "use strict";
-var nodes = new Map();
-var edges = new Set();
 function toHex(x, digits) {
     return ('0'.repeat(digits) + Number(x).toString(16)).slice(-digits).toUpperCase();
 }
@@ -27,7 +25,7 @@ type: ${this.type}
 payload: ${Array.from(this.payload).map((x) => { return toHex(x, 2); }).join(' ')}`);
     }
 }
-const MS_PER_SECOND = 1000;
+const MS_PER_SECOND = 100;
 const RSTP_HELLO_TIME = 2 * MS_PER_SECOND;
 const RSTP_FWD_DELAY = 15 * MS_PER_SECOND;
 const RSTP_MAX_AGE = 20;
@@ -163,9 +161,9 @@ class BasePort {
         this.peer = null;
         this.ptp = null;
         this.queue = [];
+        this.g = null;
         this.parent = parent;
         this._id = id;
-        nodes.set(this.id(), this);
         setInterval(() => {
             let frame = this.queue.pop();
             if (frame)
@@ -173,7 +171,6 @@ class BasePort {
         }, 100);
     }
     destructor() {
-        nodes.delete(this.id());
     }
     id() {
         return `${this.parent.id()}-${this._id}`;
@@ -190,23 +187,24 @@ class BasePort {
         this.peer.queue.push(frame);
         return true;
     }
-    connect(that) {
+    connect(that, g) {
         this.ptp = !(this.parent instanceof Hub || that.parent instanceof Hub);
         this.peer = that;
+        this.g = g;
     }
     disconnect() {
         this.ptp = null;
         this.peer = null;
+        this.g = null;
+        this.queue = [];
     }
 }
 class BaseDevice {
     constructor(id = randomId(), mac = new MAC()) {
         this._id = id;
         this.mac = mac;
-        nodes.set(this.id(), this);
     }
     destructor() {
-        nodes.delete(this.id());
     }
     id() {
         return this._id;
@@ -222,9 +220,16 @@ class BaseDevice {
     }
 }
 class Edge extends BaseDevice {
-    constructor() {
-        super(...arguments);
+    constructor(id = randomId(), mac = new MAC()) {
+        super(id, mac);
         this.port = new BasePort(this, 0);
+        this.g = {
+            type: 'rect',
+            id: this.id(),
+            label: this.id(),
+            cluster: this.id()
+        };
+        graph.addItem('node', this.g);
     }
     send(to, payload = randomPayload(16)) {
         console.log(`${this.name()} sent a frame to ${to.macH}`);
@@ -240,6 +245,13 @@ class Hub extends BaseDevice {
         for (let i = 0; i < nPorts; i++) {
             this.ports[i] = new BasePort(this, i);
         }
+        this.g = {
+            type: 'diamond',
+            id: this.id(),
+            label: this.id(),
+            cluster: this.id()
+        };
+        graph.addItem('node', this.g);
     }
     recv(frame, src) {
         this.ports.forEach((x) => {
@@ -252,8 +264,8 @@ class RSTPPort extends BasePort {
     constructor(parent, id, cost = 20000) {
         super(parent, id);
         this.edge = true;
-        this.role = PortRole.Designated;
-        this.state = PortState.Discard;
+        this._role = PortRole.Designated;
+        this._state = PortState.Discard;
         this.topoChange = false;
         this.bestBPDU = null;
         this.timerState = null;
@@ -262,14 +274,36 @@ class RSTPPort extends BasePort {
         this.cost = cost;
         this.myID = new bpduPortID(id);
         setInterval(this.hello.bind(this), RSTP_HELLO_TIME);
+        this.gRSTP = {
+            comboId: this.parent.id(),
+            id: this.id(),
+            label: this.id(),
+            cluster: this.parent.id(),
+            style: {
+                lineWidth: 20
+            }
+        };
+        graph.addItem('node', this.gRSTP);
+        graph.setItemState(this.id(), 'defunct', true);
+        graph.updateCombo(this.parent.id());
+    }
+    get state() { return this._state; }
+    set state(state) {
+        this._state = state;
+        graph.setItemState(this.id(), 'state', ['discard', 'learn', 'forward'][state]);
+    }
+    get role() { return this._role; }
+    set role(role) {
+        this._role = role;
+        graph.setItemState(this.id(), 'role', [, 'alternate', 'root', 'designated'][role]);
     }
     myBPDU() {
         return new BPDU(this.parent.root, (this.parent.rootPort ? this.parent.rootCost : 0) + this.cost, this.parent.myID, this.myID, this.state, this.role, (this.parent.rootPort ? this.parent.rootAge : -1) + 1, (this.ptp === true &&
             this.role === PortRole.Designated &&
             this.state < PortState.Forward), false, this.topoChange);
     }
-    connect(that) {
-        super.connect(that);
+    connect(that, g) {
+        super.connect(that, g);
         console.log(`${this.id()} connected`);
         this.role = PortRole.Designated;
         console.log(`${this.id()} is made DESIGNATED by up`);
@@ -294,6 +328,7 @@ class RSTPPort extends BasePort {
             clearTimeout(this.timerBPDU);
         super.disconnect();
         console.log(`${this.id()} disconnected`);
+        graph.setItemState(this.id(), 'defunct', true);
     }
     hello() {
         if (this.peer &&
@@ -332,13 +367,13 @@ class RSTPPort extends BasePort {
         if (this.timerState)
             clearTimeout(this.timerState);
         this.timerState = setTimeout(() => {
-            this.state = PortState.Learn;
-            console.log(`${this.id()} entering LEARNING by timer...`);
-            this.timerState = setTimeout(() => {
-                this.state = PortState.Forward;
-                console.log(`${this.id()} entering FORWARDING by timer`);
-                this.parent.topoChange(this, true);
-            }, RSTP_FWD_DELAY);
+            //    this.state = PortState.Learn
+            //    console.log(`${this.id()} entering LEARNING by timer...`)
+            //    this.timerState = setTimeout(() => {
+            this.state = PortState.Forward;
+            console.log(`${this.id()} entering FORWARDING by timer`);
+            this.parent.topoChange(this, true);
+            //    }, RSTP_FWD_DELAY)
         }, RSTP_FWD_DELAY);
         this.hello();
     }
@@ -358,6 +393,11 @@ class Bridge extends BaseDevice {
         this.rootPort = null;
         this.table = new Map();
         this.root = this.myID = new bpduBridgeID(mac);
+        this.g = {
+            id: this.id(),
+            label: this.id()
+        };
+        graph.createCombo(this.g, []);
         for (let i = 0; i < nPorts; i++) {
             this.ports[i] = new RSTPPort(this, i);
         }
@@ -542,11 +582,16 @@ function connect(x, y) {
         console.error(`Could not connect ${x.id()} with ${y.id()}!`);
         return false;
     }
-    x.connect(y);
-    y.connect(x);
     let xid = (x.parent instanceof Bridge) ? x.id() : x.parent.id();
     let yid = (y.parent instanceof Bridge) ? y.id() : y.parent.id();
-    edges.add(xid + ',' + yid);
+    let g = {
+        id: xid + ',' + yid,
+        source: xid,
+        target: yid,
+    };
+    graph.addItem('edge', g);
+    x.connect(y, g);
+    y.connect(x, g);
     return true;
 }
 function disconnect(x, y) {
@@ -558,8 +603,8 @@ function disconnect(x, y) {
     y.disconnect();
     let xid = (x.parent instanceof Bridge) ? x.id() : x.parent.id();
     let yid = (y.parent instanceof Bridge) ? y.id() : y.parent.id();
-    edges.delete(xid + ',' + yid);
-    edges.delete(yid + ',' + xid);
+    let edge = graph.findById(xid + ',' + yid) || graph.findById(yid + ',' + xid);
+    graph.removeItem(edge);
     return true;
 }
 function failure(x) {
@@ -567,10 +612,12 @@ function failure(x) {
         console.error(`${x.id()} not connected!`);
         return false;
     }
-    //let xid = (x.parent instanceof Bridge) ? x.id() : x.parent.id()
+    let xid = (x.parent instanceof Bridge) ? x.id() : x.parent.id();
     let y = x.peer;
-    //let yid = (y.parent instanceof Bridge) ? y.id() : y.parent.id()
+    let yid = (y.parent instanceof Bridge) ? y.id() : y.parent.id();
     x.peer = null;
     y.peer = null;
+    let edge = graph.findById(xid + ',' + yid) || graph.findById(yid + ',' + xid);
+    graph.setItemState(edge, 'fail', true);
     return true;
 }

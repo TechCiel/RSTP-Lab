@@ -1,5 +1,5 @@
 "use strict"
-/*
+
 let b1 = new Bridge(8, 'b1', new MAC(1))
 let b2 = new Bridge(8, 'b2', new MAC(2))
 let b3 = new Bridge(8, 'b3', new MAC(3))
@@ -34,7 +34,7 @@ connect(b3.ports[5], h5.ports[3])
 connect(b3.ports[6], h6.ports[3])
 connect(b3.ports[7], h7.ports[3])
 connect(b8.ports[4], h4.ports[0])
-*/
+
 /*
 let b1 = new Bridge(8, 'b1', new MAC(1))
 let b2 = new Bridge(8, 'b2', new MAC(2))
@@ -58,47 +58,8 @@ connect(b2.ports[4], b3.ports[4])
 connect(b2.ports[5], b4.ports[2])
 */
 
+graph.data(graph.save())
+graph.refresh()
+graph.render()
 
-var gNodes = []
-var gCombos = []
-var gEdges = []
-nodes.forEach((x) => {
-    if(x instanceof BasePort) {
-        if(x.parent instanceof Bridge) {
-            gNodes.push({
-                comboId: x.parent.id(),
-                id: x.id(),
-                label: x.id(),
-                cluster: x.parent.id()
-            })
-        }
-    }
-    else if(x instanceof Edge) {
-        gNodes.push({
-            type: 'rect',
-            id: x.id(),
-            label: x.id(),
-            cluster: x.id()
-        })
-    }
-    else if(x instanceof Hub) {
-        gNodes.push({
-            type: 'diamond',
-            id: x.id(),
-            label: x.id(),
-            cluster: x.id()
-        })
-    }
-    else if(x instanceof Bridge) {
-        gCombos.push({
-            id: x.id(),
-            label: x.id()
-        })
-    }
-})
-edges.forEach( (x) => {
-    gEdges.push({
-        source: x.split(',')[0],
-        target: x.split(',')[1],
-    })
-})
+console.log('finish')
