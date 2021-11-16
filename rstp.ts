@@ -240,7 +240,7 @@ class BasePort implements Port {
         return `${this.parent.id()}-${this._id}`
     }
     name(): string {
-        return `${this.parent.id()} Port ${this._id}`
+        return `${this.parent.name()} Port ${this._id}`
     }
     recv(frame: Frame): void {
         this.parent.recv(frame, this)
@@ -393,29 +393,29 @@ class RSTPPort extends BasePort implements Port {
     }
     override connect(that: Port, g: Object): void {
         super.connect(that, g)
-        console.log(`${this.id()} connected`)
+        console.log(`${this.name()} connected`)
         this.role = PortRole.Designated
-        console.log(`${this.id()} is made DESIGNATED by up`)
+        console.log(`${this.name()} is made DESIGNATED by up`)
         if(this.edge) {
-            console.log(`${this.id()} entering FORWARDING by edge`)
+            console.log(`${this.name()} entering FORWARDING by edge`)
             this.state = PortState.Forward
         }
         else {
-            console.log(`${this.id()} converging by connect`)
+            console.log(`${this.name()} converging by connect`)
             this.converge(PortRole.Designated)
         }
     }
     override disconnect(): void {
         this.parent.fail(this)
         this.state = PortState.Discard
-        console.log(`${this.id()} entering DISCARDING by down`)
+        console.log(`${this.name()} entering DISCARDING by down`)
         this.clearTable()
         this.bestBPDU = null
         if(this.timerState) clearTimeout(this.timerState)
         if(this.timerBPDU) clearTimeout(this.timerBPDU)
         super.disconnect()
-        console.log(`${this.id()} disconnected`)
-        graph.setItemState(this.id(), 'defunct', true)
+        console.log(`${this.name()} disconnected`)
+        graph.setItemState(this.name(), 'defunct', true)
     }
     hello(): void {
         if(
@@ -428,7 +428,7 @@ class RSTPPort extends BasePort implements Port {
                 )
             )
         ) {
-            //console.log(`BPDU sent from ${this.id()}`)
+            //console.log(`BPDU sent from ${this.name()}`)
             //this.myBPDU().print()
             this.send(this.myBPDU().toFrame(this.parent.mac))
         }
@@ -441,7 +441,7 @@ class RSTPPort extends BasePort implements Port {
         if(this.timerBPDU) clearTimeout(this.timerBPDU)
         this.timerBPDU = setTimeout(() => {
             this.parent.fail(this)////
-            console.log(`${this.id()} converging by timeout`)
+            console.log(`${this.name()} converging by timeout`)
             this.converge(PortRole.Designated)
         }, 3*RSTP_HELLO_TIME)
     }
@@ -450,16 +450,16 @@ class RSTPPort extends BasePort implements Port {
         if(this.timerBPDU) clearTimeout(this.timerBPDU)
         this.role = role
         this.state = PortState.Discard
-        console.log(`${this.id()} is made ${[, 'ALTERNATE', 'ROOT', 'DESIGNATED'][this.role]} by converging...`)
-        console.log(`${this.id()} entering DISCARDING by converging...`)
+        console.log(`${this.name()} is made ${[, 'ALTERNATE', 'ROOT', 'DESIGNATED'][this.role]} by converging...`)
+        console.log(`${this.name()} entering DISCARDING by converging...`)
         this.clearTable()
         if(this.timerState) clearTimeout(this.timerState)
         this.timerState = setTimeout(() => {
         //    this.state = PortState.Learn
-        //    console.log(`${this.id()} entering LEARNING by timer...`)
+        //    console.log(`${this.name()} entering LEARNING by timer...`)
         //    this.timerState = setTimeout(() => {
                 this.state = PortState.Forward
-                console.log(`${this.id()} entering FORWARDING by timer`)
+                console.log(`${this.name()} entering FORWARDING by timer`)
                 this.parent.topoChange(this, true)
         //    }, RSTP_FWD_DELAY)
         }, RSTP_FWD_DELAY)
@@ -532,7 +532,7 @@ class Bridge extends BaseDevice implements Device {
         //bpdu.print()
         if(src.edge) {
             src.edge = false
-            console.log(`${src.id()} is converging by non-edge`)
+            console.log(`${src.name()} is converging by non-edge`)
             src.converge(PortRole.Designated)
         }
         if(bpdu.msgAge > bpdu.maxAge) return
@@ -542,7 +542,7 @@ class Bridge extends BaseDevice implements Device {
             src.ptp === true
         ) {
             src.state = PortState.Forward
-            console.log(`${src.id()} entering FORWARDING by agreemnet`)
+            console.log(`${src.name()} entering FORWARDING by agreemnet`)
             this.topoChange(src, true) 
             if(src.timerState) clearTimeout(src.timerState)
             return
@@ -563,15 +563,16 @@ class Bridge extends BaseDevice implements Device {
             this.rootCost = bpdu.cost
             this.rootAge = bpdu.msgAge
             this.rootPort = src
-            console.log(`${src.id()} converging by root`)
+            console.log(`${src.name()} converging by root`)
             src.converge(PortRole.Root)
             this.ports.forEach((x) => {
                 if(
+                    x.peer &&
                     !x.edge &&
                     x !== src &&
                     x.role !== PortRole.Alternate
                 ) {
-                    console.log(`${x.id()} converging by root update`)
+                    console.log(`${x.name()} converging by root update`)
                     x.converge(PortRole.Designated)
                 }
             })
@@ -581,7 +582,7 @@ class Bridge extends BaseDevice implements Device {
             ) {
                 src.send(bpdu.toFrame(this.mac, true))
                 src.state = PortState.Forward
-                console.log(`${src.id()} entering FORWARDING by send agreemnet`)
+                console.log(`${src.name()} entering FORWARDING by send agreemnet`)
                 this.topoChange(src, true) 
                 if(src.timerState) clearTimeout(src.timerState)
             }
@@ -589,9 +590,9 @@ class Bridge extends BaseDevice implements Device {
         if(bpdu.superior(src.myBPDU())) { // bpdu > myBPDU
             if(src.role === PortRole.Designated) {
                 src.role = PortRole.Alternate
-                console.log(`${src.id()} is made ALTERNATE by BPDU`)
+                console.log(`${src.name()} is made ALTERNATE by BPDU`)
                 src.state = PortState.Discard
-                console.log(`${src.id()} entering DISCARDING by BPDU`)
+                console.log(`${src.name()} entering DISCARDING by BPDU`)
             }
             src.block(bpdu)
         }
@@ -601,13 +602,13 @@ class Bridge extends BaseDevice implements Device {
             src.bestBPDU &&
             src.bestBPDU.senderID.equals(bpdu.senderID)
         ){
-            console.log(`${src.id()} converging by inferior bpdu`)
+            console.log(`${src.name()} converging by inferior bpdu`)
             //bpdu.print()
             src.converge(PortRole.Designated)
         }
     }
     topoChange(src: RSTPPort, detected: boolean=false): void {
-        console.log(`Topology change ${detected?'detected':'received'} on ${src.id()}`)
+        console.log(`Topology change ${detected?'detected':'received'} on ${src.name()}`)
         this.ports.forEach((x) => {
             if(detected || x !== src) {
                 x.topoChange = true
@@ -638,20 +639,20 @@ class Bridge extends BaseDevice implements Device {
                 this.rootAge = newRoot.bestBPDU.msgAge
                 this.rootPort = newRoot
                 newRoot.role = PortRole.Root
-                console.log(`${newRoot.id()} is made ROOT by root fail`)
+                console.log(`${newRoot.name()} is made ROOT by root fail`)
                 newRoot.state = PortState.Forward
-                console.log(`${newRoot.id()} entering FORWARDING by root fail`)
+                console.log(`${newRoot.name()} entering FORWARDING by root fail`)
                 this.topoChange(newRoot, true)    
             }
             else {
-                console.log(`${this.id()} lost connection to root!`)
+                console.log(`${this.name()} lost connection to root!`)
                 this.root = this.myID
                 this.rootAge = 0
                 this.rootCost = 0
                 this.rootPort = null
                 this.ports.forEach((x) => {
-                    if(!x.edge) {
-                        console.log(`${x.id()} converging by root fail`)
+                    if(x.peer && !x.edge) {
+                        console.log(`${x.name()} converging by root fail`)
                         x.converge(PortRole.Designated)
                     }
                 })
@@ -668,9 +669,9 @@ class Bridge extends BaseDevice implements Device {
                     x.bestBPDU = null
                     if(x.timerBPDU) clearTimeout(x.timerBPDU)
                     x.role = PortRole.Designated
-                    console.log(`${x.id()} is made DESIGNATED by designated fail`)
+                    console.log(`${x.name()} is made DESIGNATED by designated fail`)
                     x.state = PortState.Forward
-                    console.log(`${x.id()} entering FORWARDING by designated fail`)
+                    console.log(`${x.name()} entering FORWARDING by designated fail`)
                     this.topoChange(x, true)
                     break
                 }
@@ -681,7 +682,7 @@ class Bridge extends BaseDevice implements Device {
 
 function connect(x: Port, y: Port): boolean {
     if(x.peer || y.peer) {
-        console.error(`Could not connect ${x.id()} with ${y.id()}!`)
+        console.error(`Could not connect ${x.name()} with ${y.name()}!`)
         return false
     }
     let xid = (x.parent instanceof Bridge) ? x.id() : x.parent.id()
@@ -698,7 +699,7 @@ function connect(x: Port, y: Port): boolean {
 }
 function disconnect(x: Port, y: Port): boolean {
     if(x.peer!==y || y.peer!==x) {
-        console.error(`Could not disconnect ${x.id()} with ${y.id()}!`)
+        console.error(`Could not disconnect ${x.name()} with ${y.name()}!`)
         return false
     }
     x.disconnect()
@@ -711,7 +712,7 @@ function disconnect(x: Port, y: Port): boolean {
 }
 function failure(x: Port): boolean {
     if(!x.peer) {
-        console.error(`${x.id()} not connected!`)
+        console.error(`${x.name()} not connected!`)
         return false
     }
     let xid = (x.parent instanceof Bridge) ? x.id() : x.parent.id()
