@@ -455,13 +455,13 @@ class RSTPPort extends BasePort implements Port {
         this.clearTable()
         if(this.timerState) clearTimeout(this.timerState)
         this.timerState = setTimeout(() => {
-        //    this.state = PortState.Learn
-        //    console.log(`${this.name()} entering LEARNING by timer...`)
-        //    this.timerState = setTimeout(() => {
+            this.state = PortState.Learn
+            console.log(`${this.name()} entering LEARNING by timer...`)
+            this.timerState = setTimeout(() => {
                 this.state = PortState.Forward
                 console.log(`${this.name()} entering FORWARDING by timer`)
                 this.parent.topoChange(this, true)
-        //    }, RSTP_FWD_DELAY)
+            }, RSTP_FWD_DELAY)
         }, RSTP_FWD_DELAY)
         this.hello()
     }
