@@ -157,13 +157,16 @@ age: ${this.msgAge} flag:${this.topoChange ? ' TC' : ''}${this.proposal ? ' prop
     }
 }
 class BasePort {
-    constructor(parent, id) {
+    constructor(parent, id, bandwidth = 1000) {
+        this.bandwidth = 1000;
         this.peer = null;
-        this.ptp = null;
+        this.duplex = null;
+        this.speed = 0;
         this.queue = [];
         this.g = null;
         this.parent = parent;
         this._id = id;
+        this.bandwidth = bandwidth;
         setInterval(() => {
             let frame = this.queue.pop();
             if (frame)
@@ -188,12 +191,14 @@ class BasePort {
         return true;
     }
     connect(that, g) {
-        this.ptp = !(this.parent instanceof Hub || that.parent instanceof Hub);
+        this.duplex = !(this.parent instanceof Hub || that.parent instanceof Hub);
+        this.speed = this.speed < that.speed ? this.speed : that.speed;
         this.peer = that;
         this.g = g;
     }
     disconnect() {
-        this.ptp = null;
+        this.duplex = null;
+        this.speed = 0;
         this.peer = null;
         this.g = null;
         this.queue = [];
@@ -261,17 +266,17 @@ class Hub extends BaseDevice {
     }
 }
 class RSTPPort extends BasePort {
-    constructor(parent, id, cost = 20000) {
+    constructor(parent, id) {
         super(parent, id);
         this.edge = true;
         this._role = PortRole.Designated;
         this._state = PortState.Discard;
         this.topoChange = false;
+        this.cost = 0;
         this.bestBPDU = null;
         this.timerState = null;
         this.timerBPDU = null;
         this.parent = parent;
-        this.cost = cost;
         this.myID = new bpduPortID(id);
         setInterval(this.hello.bind(this), RSTP_HELLO_TIME);
         this.gRSTP = {
@@ -298,7 +303,7 @@ class RSTPPort extends BasePort {
         graph.setItemState(this.id(), 'role', [, 'alternate', 'root', 'designated'][role]);
     }
     myBPDU() {
-        return new BPDU(this.parent.root, (this.parent.rootPort ? this.parent.rootCost : 0) + this.cost, this.parent.myID, this.myID, this.state, this.role, (this.parent.rootPort ? this.parent.rootAge : -1) + 1, (this.ptp === true &&
+        return new BPDU(this.parent.root, (this.parent.rootPort ? this.parent.rootCost : 0) + this.cost, this.parent.myID, this.myID, this.state, this.role, (this.parent.rootPort ? this.parent.rootAge : -1) + 1, (this.duplex === true &&
             this.role === PortRole.Designated &&
             this.state < PortState.Forward), false, this.topoChange);
     }
@@ -307,6 +312,7 @@ class RSTPPort extends BasePort {
         console.log(`${this.name()} connected`);
         this.role = PortRole.Designated;
         console.log(`${this.name()} is made DESIGNATED by up`);
+        this.cost = Math.floor(20000000 / this.speed);
         if (this.edge) {
             console.log(`${this.name()} entering FORWARDING by edge`);
             this.state = PortState.Forward;
@@ -317,18 +323,18 @@ class RSTPPort extends BasePort {
         }
     }
     disconnect() {
-        this.parent.fail(this);
+        super.disconnect();
+        console.log(`${this.name()} disconnected`);
         this.state = PortState.Discard;
         console.log(`${this.name()} entering DISCARDING by down`);
-        this.clearTable();
-        this.bestBPDU = null;
         if (this.timerState)
             clearTimeout(this.timerState);
         if (this.timerBPDU)
             clearTimeout(this.timerBPDU);
-        super.disconnect();
-        console.log(`${this.name()} disconnected`);
-        graph.setItemState(this.name(), 'defunct', true);
+        this.bestBPDU = null;
+        this.parent.fail(this);
+        this.clearTable();
+        graph.setItemState(this.id(), 'defunct', true);
     }
     hello() {
         if (this.peer &&
@@ -452,7 +458,7 @@ class Bridge extends BaseDevice {
             return;
         if (bpdu.agreement &&
             src.role === PortRole.Designated &&
-            src.ptp === true) {
+            src.duplex === true) {
             src.state = PortState.Forward;
             console.log(`${src.name()} entering FORWARDING by agreemnet`);
             this.topoChange(src, true);
@@ -483,7 +489,7 @@ class Bridge extends BaseDevice {
                 }
             });
             if (bpdu.proposal &&
-                src.ptp === true) {
+                src.duplex === true) {
                 src.send(bpdu.toFrame(this.mac, true));
                 src.state = PortState.Forward;
                 console.log(`${src.name()} entering FORWARDING by send agreemnet`);
@@ -578,13 +584,13 @@ class Bridge extends BaseDevice {
         }
     }
 }
-function connect(x, y) {
+function connect(x, y, cost) {
     if (x.peer || y.peer) {
         console.error(`Could not connect ${x.name()} with ${y.name()}!`);
         return false;
     }
-    let xid = (x.parent instanceof Bridge) ? x.id() : x.parent.id();
-    let yid = (y.parent instanceof Bridge) ? y.id() : y.parent.id();
+    let xid = (x instanceof RSTPPort) ? x.id() : x.parent.id();
+    let yid = (y instanceof RSTPPort) ? y.id() : y.parent.id();
     let g = {
         id: xid + ',' + yid,
         source: xid,
@@ -593,6 +599,10 @@ function connect(x, y) {
     graph.addItem('edge', g);
     x.connect(y, g);
     y.connect(x, g);
+    if (cost && x instanceof RSTPPort)
+        x.cost = cost;
+    if (cost && y instanceof RSTPPort)
+        y.cost = cost;
     return true;
 }
 function disconnect(x, y) {
@@ -602,8 +612,8 @@ function disconnect(x, y) {
     }
     x.disconnect();
     y.disconnect();
-    let xid = (x.parent instanceof Bridge) ? x.id() : x.parent.id();
-    let yid = (y.parent instanceof Bridge) ? y.id() : y.parent.id();
+    let xid = (x instanceof RSTPPort) ? x.id() : x.parent.id();
+    let yid = (y instanceof RSTPPort) ? y.id() : y.parent.id();
     let edge = graph.findById(xid + ',' + yid) || graph.findById(yid + ',' + xid);
     graph.removeItem(edge);
     return true;
@@ -613,9 +623,9 @@ function failure(x) {
         console.error(`${x.name()} not connected!`);
         return false;
     }
-    let xid = (x.parent instanceof Bridge) ? x.id() : x.parent.id();
+    let xid = (x instanceof RSTPPort) ? x.id() : x.parent.id();
     let y = x.peer;
-    let yid = (y.parent instanceof Bridge) ? y.id() : y.parent.id();
+    let yid = (y instanceof RSTPPort) ? y.id() : y.parent.id();
     x.peer = null;
     y.peer = null;
     let edge = graph.findById(xid + ',' + yid) || graph.findById(yid + ',' + xid);
