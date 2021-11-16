@@ -1,11 +1,5 @@
 "use strict";
 
-const data = {
-    nodes: [],
-    combos: [],
-    edges: [],
-}
-
 const width = document.getElementById('mountNode').scrollWidth
 const height = document.getElementById('mountNode').scrollHeight || 500
 var graph = new G6.Graph({
@@ -83,5 +77,4 @@ graph.on('node:dragend', function (e) {
     e.item.get('model').fx = null
     e.item.get('model').fy = null
 })
-graph.data(data)
-graph.render()
+
