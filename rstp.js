@@ -25,7 +25,7 @@ type: ${this.type}
 payload: ${Array.from(this.payload).map((x) => { return toHex(x, 2); }).join(' ')}`);
     }
 }
-const MS_PER_SECOND = 100;
+const MS_PER_SECOND = 500;
 const RSTP_HELLO_TIME = 2 * MS_PER_SECOND;
 const RSTP_FWD_DELAY = 15 * MS_PER_SECOND;
 const RSTP_MAX_AGE = 20;
