@@ -1,5 +1,10 @@
 "use strict";
-(function(){let code = new URLSearchParams(location.search).get('converted');if(code){eval(code);return}
+
+let code = new URLSearchParams(location.search).get('converted')
+if(code) {
+    eval(code)
+    exit()
+}
 
 let b1 = new Bridge(8, 'b1', new MAC(1))
 let b2 = new Bridge(8, 'b2', new MAC(2))
@@ -56,16 +61,9 @@ connect(b1.ports[4], b3.ports[2])
 connect(b1.ports[5], b4.ports[1])
 connect(b2.ports[3], b3.ports[3])
 connect(b2.ports[4], b3.ports[4])
-connect(b2.ports[5], b4.ports[2])
-*/
+connect(b2.ports[5], b4.ports[2])*/
 
 graph.data(graph.save())
 graph.render()
 
 console.log('finish')
-
-
-
-
-
-})()
