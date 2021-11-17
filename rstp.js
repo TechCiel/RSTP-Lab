@@ -192,7 +192,7 @@ class BasePort {
     }
     connect(that, g) {
         this.duplex = !(this.parent instanceof Hub || that.parent instanceof Hub);
-        this.speed = this.speed < that.speed ? this.speed : that.speed;
+        this.speed = this.bandwidth < that.bandwidth ? this.bandwidth : that.bandwidth;
         this.peer = that;
         this.g = g;
     }
@@ -504,6 +504,7 @@ class Bridge extends BaseDevice {
                 console.log(`${src.name()} is made ALTERNATE by BPDU`);
                 src.state = PortState.Discard;
                 console.log(`${src.name()} entering DISCARDING by BPDU`);
+                //bpdu.print()
             }
             src.block(bpdu);
         }
@@ -599,9 +600,9 @@ function connect(x, y, cost) {
     graph.addItem('edge', g);
     x.connect(y, g);
     y.connect(x, g);
-    if (cost && x instanceof RSTPPort)
+    if (cost && (x instanceof RSTPPort))
         x.cost = cost;
-    if (cost && y instanceof RSTPPort)
+    if (cost && (y instanceof RSTPPort))
         y.cost = cost;
     return true;
 }
