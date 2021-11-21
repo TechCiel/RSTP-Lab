@@ -504,7 +504,7 @@ class Bridge extends BaseDevice {
                 console.log(`${src.name()} is made ALTERNATE by BPDU`);
                 src.state = PortState.Discard;
                 console.log(`${src.name()} entering DISCARDING by BPDU`);
-                //bpdu.print()
+                bpdu.print()
             }
             src.block(bpdu);
         }
