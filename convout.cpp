@@ -29,7 +29,7 @@ int main() {
     fwrite(portBuffer, sizeof(char), strlen(portBuffer), stdout);
     printf("],edges:[");
     fwrite(edgeBuffer, sizeof(char), strlen(edgeBuffer), stdout);
-    printf("]});graph.render();exit();");
+    printf("]});graph.render();");
     fwrite(stateBuffer, sizeof(char), strlen(stateBuffer), stdout);
-    putchar('\n');
+    printf("exit();\n");
 }
