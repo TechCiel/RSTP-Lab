@@ -562,8 +562,13 @@ class Bridge extends BaseDevice implements Device {
             bpdu.rootID.superior(this.root) ||
             (
                 this.rootPort &&
-                this.rootPort.bestBPDU &&
-                bpdu.superior(this.rootPort.bestBPDU)
+                this.rootPort.bestBPDU && (
+                    bpdu.superior(this.rootPort.bestBPDU) ||
+                    (
+                        !this.rootPort.bestBPDU.superior(bpdu) &&
+                        src.myID.superior(this.rootPort.myID)
+                    )
+                )
             )
         ) {
             this.root = bpdu.rootID
