@@ -21,7 +21,6 @@ int main()
     for (int i=1;i<=200;i++)
         if (porth[i])
             printf("let h%d = new Hub(%d, \'h%d\')\n",i,porth[i],i);
-    scanf("%d",&m);
     for (int i=1;i<=m;i++)
     {
         printf("connect(b%d.ports[%d], h%d.ports[%d], %d)\n",b[i],p[i],l[i],hubp[i],c[i]);
