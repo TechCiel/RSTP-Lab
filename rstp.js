@@ -471,8 +471,9 @@ class Bridge extends BaseDevice {
             this.topoChange(src);
         if (bpdu.rootID.superior(this.root) ||
             (this.rootPort &&
-                this.rootPort.bestBPDU &&
-                bpdu.superior(this.rootPort.bestBPDU))) {
+                this.rootPort.bestBPDU && (bpdu.superior(this.rootPort.bestBPDU) ||
+                (!this.rootPort.bestBPDU.superior(bpdu) &&
+                    src.myID.superior(this.rootPort.myID))))) {
             this.root = bpdu.rootID;
             this.rootCost = bpdu.cost;
             this.rootAge = bpdu.msgAge;
