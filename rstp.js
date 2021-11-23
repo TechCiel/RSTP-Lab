@@ -285,7 +285,8 @@ class RSTPPort extends BasePort {
             label: this.id(),
             cluster: this.parent.id(),
             style: {
-                lineWidth: 20
+                lineWidth: 20,
+                stroke: '#757575'
             }
         };
         graph.addItem('node', this.gRSTP);

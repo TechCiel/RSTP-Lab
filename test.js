@@ -19,6 +19,8 @@ let e5 = new Edge('e5')
 let e6 = new Edge('e6')
 let e7 = new Edge('e7')
 let e8 = new Edge('e8')
+graph.data(graph.save())
+graph.render()
 connect(b1.ports[1], e1.port)
 connect(b2.ports[2], e2.port)
 connect(b3.ports[3], e3.port)
@@ -38,9 +40,3 @@ connect(b3.ports[6], h6.ports[3])
 connect(b3.ports[7], h7.ports[3])
 connect(b8.ports[4], h4.ports[0])
 */
-
-
-graph.data(graph.save())
-graph.render()
-
-console.log('finish')
