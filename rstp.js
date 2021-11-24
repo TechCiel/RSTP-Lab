@@ -304,7 +304,7 @@ class RSTPPort extends BasePort {
         graph.setItemState(this.id(), 'role', [, 'alternate', 'root', 'designated'][role]);
     }
     myBPDU() {
-        return new BPDU(this.parent.root, (this.parent.rootPort ? this.parent.rootCost : 0) + this.cost, this.parent.myID, this.myID, this.state, this.role, (this.parent.rootPort ? this.parent.rootAge : -1) + 1, (this.duplex === true &&
+        return new BPDU(this.parent.root, this.parent.rootCost, this.parent.myID, this.myID, this.state, this.role, this.parent.rootAge, (this.duplex === true &&
             this.role === PortRole.Designated &&
             this.state < PortState.Forward), false, this.topoChange);
     }
@@ -390,6 +390,41 @@ class RSTPPort extends BasePort {
                 this.parent.table.delete(mac);
         });
     }
+    betterRoot(that) {
+        if (this.bestBPDU === null)
+            return false; // assert
+        if (that === null) {
+            if (this.parent.rootPort === null) {
+                return this.bestBPDU.rootID.superior(this.parent.root);
+            }
+            else {
+                return this.bestBPDU.rootID.equals(this.parent.root);
+            }
+        }
+        if (that.bestBPDU === null)
+            return false; // assert
+        if (this.bestBPDU.rootID.superior(that.bestBPDU.rootID))
+            return true;
+        if (that.bestBPDU.rootID.superior(this.bestBPDU.rootID))
+            return false;
+        if (this.bestBPDU.cost + this.cost < this.parent.rootCost)
+            return true;
+        if (this.bestBPDU.cost + this.cost > this.parent.rootCost)
+            return false;
+        if (this.bestBPDU.senderID.superior(that.bestBPDU.senderID))
+            return true;
+        if (that.bestBPDU.senderID.superior(this.bestBPDU.senderID))
+            return false;
+        if (this.bestBPDU.portID.superior(that.bestBPDU.portID))
+            return true;
+        if (that.bestBPDU.portID.superior(this.bestBPDU.portID))
+            return false;
+        if (this.myID.superior(that.myID))
+            return true;
+        if (that.myID.superior(this.myID))
+            return false;
+        return false; // assert
+    }
 }
 class Bridge extends BaseDevice {
     constructor(nPorts, id = randomId(), mac = new MAC()) {
@@ -470,36 +505,6 @@ class Bridge extends BaseDevice {
         if (bpdu.topoChange &&
             src.state === PortState.Forward)
             this.topoChange(src);
-        if (bpdu.rootID.superior(this.root) ||
-            (this.rootPort &&
-                this.rootPort.bestBPDU && (bpdu.superior(this.rootPort.bestBPDU) ||
-                (!this.rootPort.bestBPDU.superior(bpdu) &&
-                    src.myID.superior(this.rootPort.myID))))) {
-            this.root = bpdu.rootID;
-            this.rootCost = bpdu.cost;
-            this.rootAge = bpdu.msgAge;
-            this.rootPort = src;
-            console.log(`${src.name()} converging by root`);
-            src.converge(PortRole.Root);
-            this.ports.forEach((x) => {
-                if (x.peer &&
-                    !x.edge &&
-                    x !== src &&
-                    x.role !== PortRole.Alternate) {
-                    console.log(`${x.name()} converging by root update`);
-                    x.converge(PortRole.Designated);
-                }
-            });
-            if (bpdu.proposal &&
-                src.duplex === true) {
-                src.send(bpdu.toFrame(this.mac, true));
-                src.state = PortState.Forward;
-                console.log(`${src.name()} entering FORWARDING by send agreemnet`);
-                this.topoChange(src, true);
-                if (src.timerState)
-                    clearTimeout(src.timerState);
-            }
-        }
         if (bpdu.superior(src.myBPDU())) { // bpdu > myBPDU
             if (src.role === PortRole.Designated) {
                 src.role = PortRole.Alternate;
@@ -509,6 +514,32 @@ class Bridge extends BaseDevice {
                 //bpdu.print()
             }
             src.block(bpdu);
+            if (src.betterRoot(this.rootPort)) {
+                this.root = bpdu.rootID;
+                this.rootCost = bpdu.cost + src.cost;
+                this.rootAge = bpdu.msgAge + 1;
+                this.rootPort = src;
+                console.log(`${src.name()} converging by root`);
+                src.converge(PortRole.Root);
+                this.ports.forEach((x) => {
+                    if (x.peer &&
+                        !x.edge &&
+                        x !== src &&
+                        x.role !== PortRole.Alternate) {
+                        console.log(`${x.name()} converging by root update`);
+                        x.converge(PortRole.Designated);
+                    }
+                });
+                if (bpdu.proposal &&
+                    src.duplex === true) {
+                    src.send(bpdu.toFrame(this.mac, true));
+                    src.state = PortState.Forward;
+                    console.log(`${src.name()} entering FORWARDING by send agreemnet`);
+                    this.topoChange(src, true);
+                    if (src.timerState)
+                        clearTimeout(src.timerState);
+                }
+            }
         }
         else if (src.myBPDU().superior(bpdu) && // myBPDU > bpdu
             src.role === PortRole.Alternate &&
@@ -538,9 +569,7 @@ class Bridge extends BaseDevice {
             let newRoot = null;
             for (let x of this.ports) {
                 if (x.role === PortRole.Alternate &&
-                    x.bestBPDU && x.bestBPDU.rootID.equals(this.root) &&
-                    (!newRoot ||
-                        (newRoot.bestBPDU && x.bestBPDU.superior(newRoot.bestBPDU))))
+                    x.betterRoot(newRoot))
                     newRoot = x;
             }
             if (newRoot && newRoot.bestBPDU) {
