@@ -27,4 +27,11 @@ int main()
     {
         printf("connect(b%d.ports[%d], h%d.ports[%d], %d)\n",b[i],p[i],l[i],hubp[i],c[i]);
     }
+    puts("function convout() {");
+    for (int i=1;i<=m;i++)
+    {
+        printf("console.log(`%d %d %d ${[, 'BP', 'RP', 'DP'][b%d.ports[%d].role]}`)\n",b[i],p[i],l[i],b[i],p[i]);
+    }
+    puts("}");
+    puts("setTimeout(convout, 40*MS_PER_SECOND)");
 }
